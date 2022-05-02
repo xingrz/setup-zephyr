@@ -1,0 +1,67 @@
+name: 'Setup Zephyr'
+author: 'XiNGRZ'
+
+inputs:
+  manifest-url:
+    required: false
+    type: string
+    description: URL to the manifest file
+    default: https://github.com/zephyrproject-rtos/zephyr
+  manifest-rev:
+    required: false
+    type: string
+    description: Revision of the manifest file
+    default: main
+  manifest-file:
+    required: false
+    type: string
+    description: Path to the manifest file
+    default: west.yml
+
+runs:
+  using: composite
+  steps:
+    - id: cache-zephyr
+      if: inputs.manifest-rev != 'main'
+      uses: actions/cache@v3
+      with:
+        path: .zephyr
+        key: zephyr-${{ inputs.manifest-url }}-${{ inputs.manifest-rev }}-${{ inputs.manifest-file }}
+
+    - if: steps.cache-zephyr.outputs.cache-hit != 'true'
+      run: |
+        echo "::group::Clone Zephyr manifest repository"
+        git clone ${{ inputs.manifest-url }} -b ${{ inputs.manifest-rev }} --depth 1 .zephyr/zephyr
+        echo "::endgroup::"
+      shell: bash
+
+    - uses: actions/setup-python@v3
+      with:
+        python-version: '3.9'
+        cache: 'pip'
+        cache-dependency-path: '.zephyr/zephyr/scripts/requirements*.txt'
+
+    - run: |
+        echo "::group::Install build tools"
+        pip install --user -U west
+        echo "::endgroup::"
+      shell: bash
+
+    - if: steps.cache-zephyr.outputs.cache-hit != 'true'
+      run: |
+        echo "::group::Clone Zephyr modules"
+        pushd .zephyr
+        west init --local zephyr --manifest-file ${{ inputs.manifest-file }}
+        west update
+        popd
+        echo "::endgroup::"
+      shell: bash
+
+    - run: |
+        echo "::group::Install build tools"
+        pip install --user -r .zephyr/zephyr/scripts/requirements.txt
+        echo "::endgroup::"
+        echo "ZEPHYR_BASE=$PWD/.zephyr/zephyr" >> $GITHUB_ENV
+      shell: bash
+
+    - uses: seanmiddleditch/gha-setup-ninja@master
